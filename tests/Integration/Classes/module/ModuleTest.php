@@ -129,6 +129,69 @@ class ModuleTest extends TestCase
 
         Module::getInstanceByName('bankwire')->uninstall();
     }
+
+    /**
+     * Test that _clearCache correctly handles templates with "module:" prefix.
+     * Templates using "module:" syntax should have the template filename extracted
+     * and passed to getTemplatePath() for resolution to an actual file path.
+     * This ensures Smarty clears only the specific template's cache, not all
+     * templates for the module.
+     *
+     * @dataProvider templatePathProvider
+     */
+    public function testClearCacheHandlesModuleTemplatesCorrectly(string $template, string $expectedExtractedTemplate): void
+    {
+        $module = $this->getMockBuilder(Module::class)
+            ->onlyMethods(['getTemplatePath', 'getDefaultCompileId'])
+            ->getMock();
+
+        $module->method('getDefaultCompileId')
+            ->willReturn('default');
+
+        $module->expects($this->once())
+            ->method('getTemplatePath')
+            ->with($expectedExtractedTemplate)
+            ->willReturn('/resolved/path/template.tpl');
+
+        $reflection = new ReflectionClass($module);
+        $method = $reflection->getMethod('_clearCache');
+        $method->setAccessible(true);
+
+        $batchModeProperty = $reflection->getProperty('_batch_mode');
+        $batchModeProperty->setAccessible(true);
+        $batchModeProperty->setValue($module, true);
+
+        $result = $method->invoke($module, $template);
+
+        $this->assertEquals(0, $result);
+
+        $batchModeProperty->setValue($module, false);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public function templatePathProvider(): array
+    {
+        return [
+            'module template in root extracts filename' => [
+                'module:ps_currencyselector/ps_currencyselector.tpl',
+                'ps_currencyselector.tpl',
+            ],
+            'module template in hook folder extracts filename' => [
+                'module:ps_socialfollow/views/templates/hook/socialfollow.tpl',
+                'socialfollow.tpl',
+            ],
+            'module template in front folder extracts filename' => [
+                'module:ps_customtext/views/templates/front/customtext.tpl',
+                'customtext.tpl',
+            ],
+            'regular template passes through unchanged' => [
+                'views/templates/hook/template.tpl',
+                'views/templates/hook/template.tpl',
+            ],
+        ];
+    }
 }
 
 define('_RESSOURCE_MODULE_DIR_', realpath(dirname(__FILE__, 4) . '/Resources/modules_tests/'));
